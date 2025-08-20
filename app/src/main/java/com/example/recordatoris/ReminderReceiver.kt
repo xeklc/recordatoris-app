@@ -84,6 +84,24 @@ class ReminderReceiver : BroadcastReceiver() {
                 return }
 
         }
+        when (intent.getStringExtra(EXTRA_REPEAT)) {
+            "MONTHLY" -> {
+                val id    = intent.getIntExtra("id", -1)
+                val title = intent.getStringExtra("title") ?: "Recordatori"
+                val text  = intent.getStringExtra("text") ?: ""
+                val dom   = intent.getIntExtra(EXTRA_DOM, 1)
+                val hour  = intent.getIntExtra(EXTRA_HOUR, 9)
+                val min   = intent.getIntExtra(EXTRA_MINUTE, 0)
+
+                // Schedule next occurrence with the same config
+                scheduleMonthlyReminder(
+                    context = context,
+                    id = id, dayOfMonth = dom, hour = hour, minute = min,
+                    title = title, text = text
+                )
+            }
+            else -> Unit // one-shot
+        }
 
         val big = BitmapFactory.decodeResource(
             context.resources, R.drawable.recordatoris_img

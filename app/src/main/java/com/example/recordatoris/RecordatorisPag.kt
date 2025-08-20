@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -90,6 +91,7 @@ fun RecordatorisPag(){
     var mostrarSelector by remember { mutableStateOf(false) }
     var mostrarSelectorDia by remember { mutableStateOf(false) }
     var titol by remember { mutableStateOf("") }
+    var isRecurrent by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val timeState = rememberTimePickerState(
         initialHour = if (Date.from(Instant.now()).hours < 23) Date.from(Instant.now()).hours + 1 else 0,
@@ -99,9 +101,9 @@ fun RecordatorisPag(){
     val dateState = rememberDatePickerState(
         initialSelectedDateMillis = System.currentTimeMillis()
     )
-    fun addRecordatori(title: String, date: Date, time: java.time.LocalTime, id:Int) {
+    fun addRecordatori(title: String, date: Date, time: java.time.LocalTime, id:Int, recurrent:Boolean) {
         scope.launch {
-            repo.add(Recordatori(id, title, date, time))
+            repo.add(Recordatori(id, title, date, time, recurrent))
         }
     }
     val deleteRecordatori: (Recordatori) -> Unit = { rec ->
@@ -116,29 +118,65 @@ fun RecordatorisPag(){
             confirmButton = {
                 TextButton(
                     onClick = {
-                        // Aquí pots guardar les dades
-                        val zone = ZoneId.systemDefault()
-                        val millis: Long = dateState.selectedDateMillis
-                            ?: (System.currentTimeMillis() + 60 * 60 * 1000) // if null → +1 hou
-                        val id = Random.nextInt(1000, 99000)
-                        addRecordatori(titol, Date(millis), LocalTime.of(timeState.hour, timeState.minute), id)
-                        val baseDate: LocalDate = Instant.ofEpochMilli(millis)
-                            .atZone(zone)
-                            .toLocalDate() // IMPORTANT: DatePicker gives midnight UTC; convert with your ZoneId
-                        val pickedTime: LocalTime = LocalTime.of(timeState.hour, timeState.minute)
-                        val pickedDateTime: LocalDateTime = LocalDateTime.of(baseDate, pickedTime)
-                        val triggerAtMillis: Long = pickedDateTime
-                            .atZone(zone)
-                            .toInstant()
-                            .toEpochMilli()
-                        scheduleReminder(
-                            context = context,
-                            triggerAtMillis = triggerAtMillis,
-                            id = id,     // e.g., DB id or a unique number
-                            title = "Recordatori",
-                            text = titol
-                        )
-                        mostrarModal = false
+                        if(isRecurrent){
+                            val zone = ZoneId.systemDefault()
+                            val millis: Long = dateState.selectedDateMillis
+                                ?: (System.currentTimeMillis() + 60 * 60 * 1000) // if null → +1 hou
+                            val id = Random.nextInt(1000, 99000)
+                            addRecordatori(
+                                titol,
+                                Date(millis),
+                                LocalTime.of(timeState.hour, timeState.minute),
+                                id,
+                                true
+                            )
+                            val baseDate: LocalDate = Instant.ofEpochMilli(millis)
+                                .atZone(zone)
+                                .toLocalDate() // IMPORTANT: DatePicker gives midnight UTC; convert with your ZoneId
+                            val pickedTime: LocalTime = LocalTime.of(timeState.hour, timeState.minute)
+                            scheduleMonthlyReminder(
+                                context = context,
+                                id = id,     // e.g., DB id or a unique number
+                                dayOfMonth = baseDate.dayOfMonth,
+                                hour = pickedTime.hour,
+                                minute = pickedTime.minute,
+                                title = "Recordatori",
+                                text = titol
+                            )
+                            mostrarModal = false
+                        }
+                        else {
+                            val zone = ZoneId.systemDefault()
+                            val millis: Long = dateState.selectedDateMillis
+                                ?: (System.currentTimeMillis() + 60 * 60 * 1000) // if null → +1 hou
+                            val id = Random.nextInt(1000, 99000)
+                            addRecordatori(
+                                titol,
+                                Date(millis),
+                                LocalTime.of(timeState.hour, timeState.minute),
+                                id,
+                                false
+                            )
+                            val baseDate: LocalDate = Instant.ofEpochMilli(millis)
+                                .atZone(zone)
+                                .toLocalDate() // IMPORTANT: DatePicker gives midnight UTC; convert with your ZoneId
+                            val pickedTime: LocalTime =
+                                LocalTime.of(timeState.hour, timeState.minute)
+                            val pickedDateTime: LocalDateTime =
+                                LocalDateTime.of(baseDate, pickedTime)
+                            val triggerAtMillis: Long = pickedDateTime
+                                .atZone(zone)
+                                .toInstant()
+                                .toEpochMilli()
+                            scheduleReminder(
+                                context = context,
+                                triggerAtMillis = triggerAtMillis,
+                                id = id,     // e.g., DB id or a unique number
+                                title = "Recordatori",
+                                text = titol
+                            )
+                            mostrarModal = false
+                        }
                     }
                 ) {
                     Text("Guardar")
@@ -163,6 +201,13 @@ fun RecordatorisPag(){
                     }
                     Button(onClick = {mostrarSelectorDia= true}) {
                         Text(text = "Seleccionar dia")
+                    }
+                    Row (verticalAlignment = Alignment.CenterVertically){
+                        Checkbox(
+                        checked = isRecurrent,
+                        onCheckedChange = {isRecurrent = it}
+                        )
+                        Text("Recurrent cada mes?")
                     }
                     val selectedMillis = dateState.selectedDateMillis
                     if (selectedMillis != null) {
@@ -259,8 +304,12 @@ fun RecordatorisPag(){
                     Text("No hi han recordatoris per avui.", modifier = Modifier.padding(10.dp), color = Color.White)
                 }
             }else{
-                items(todayList.size){item ->
-                    RecordatoriItem(todayList[item], onDelete = deleteRecordatori)
+                items(todayList.size) { index ->
+                    if (todayList[index].recurring) {
+                        RecordatoriItem(listRec[index], onDelete = deleteRecordatori, true)
+                    } else {
+                        RecordatoriItem(listRec[index], onDelete = deleteRecordatori, false)
+                    }
                 }
             }
         }
@@ -273,15 +322,33 @@ fun RecordatorisPag(){
                     Text("No hi han recordatoris per aquesta setmana.", modifier = Modifier.padding(10.dp), color = Color.White)
                 }
             }else{
-                items(thisWeekList.size){index -> RecordatoriItem(thisWeekList[index], onDelete = deleteRecordatori)}
+                items(thisWeekList.size) { index ->
+                    if (thisWeekList[index].recurring) {
+                        RecordatoriItem(listRec[index], onDelete = deleteRecordatori, true)
+                    } else {
+                        RecordatoriItem(listRec[index], onDelete = deleteRecordatori, false)
+                    }
+                }
             }
         }
+        Text(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), text = "Tots els recordatoris", color = Color.White)
+        HorizontalDivider(modifier = Modifier.padding(8.dp), color = Color.White,thickness = 2.dp)
+        LazyColumn {
+            items(listRec.size) { index ->
+                if (listRec[index].recurring) {
+                    RecordatoriItem(listRec[index], onDelete = deleteRecordatori, true)
+                } else {
+                    RecordatoriItem(listRec[index], onDelete = deleteRecordatori, false)
+                }
+            }
+        }
+
     }
 }
 
 
 @Composable
-fun RecordatoriItem(item: Recordatori, onDelete: (Recordatori) -> Unit){
+fun RecordatoriItem(item: Recordatori, onDelete: (Recordatori) -> Unit, recurring: Boolean){
     Row (modifier = Modifier.fillMaxWidth()
         .padding(8.dp)
         .clip(RoundedCornerShape(16.dp))
@@ -293,6 +360,9 @@ fun RecordatoriItem(item: Recordatori, onDelete: (Recordatori) -> Unit){
             Text(text = (if (item.hour.hour >= 10) item.hour.hour.toString() else "0"+item.hour.hour.toString())+":"+(if (item.hour.minute >= 10) item.hour.minute.toString() else "0"+item.hour.minute.toString())+", "+SimpleDateFormat("dd/MM/yy", Locale.ENGLISH).format(item.date),
                 fontSize = 14.sp,
                 color = Color.White)
+            if(recurring){
+                Text(text="Recurrent", color = Color.White, fontSize = 14.sp)
+            }
             Text(text = item.title, fontSize = 20.sp, color = Color.White)
         }
 

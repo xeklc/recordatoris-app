@@ -10,14 +10,63 @@ import android.provider.Settings
 import android.Manifest
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import kotlin.math.min
 
-
+const val EXTRA_REPEAT  = "repeat"      // values: "NONE" | "MONTHLY"
+const val EXTRA_DOM     = "dom"         // day of month (1..31)
+const val EXTRA_HOUR    = "hour"
+const val EXTRA_MINUTE  = "minute"
 fun canScheduleExact(context: Context): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
     val am = context.getSystemService(AlarmManager::class.java)
     return am.canScheduleExactAlarms()
 }
+fun nextMonthlyTriggerMillis(
+    dayOfMonth: Int,           // e.g., 1..31
+    hour: Int,
+    minute: Int,
+    zone: ZoneId = ZoneId.systemDefault()
+): Long {
+    val now = ZonedDateTime.now(zone)
 
+    fun atThisMonth(ym: YearMonth): ZonedDateTime {
+        val dom = min(dayOfMonth, ym.lengthOfMonth()) // clamp to month length
+        return ym.atDay(dom).atTime(hour, minute).atZone(zone)
+    }
+
+    var ym = YearMonth.from(now)
+    var next = atThisMonth(ym)
+    if (!next.isAfter(now)) {
+        ym = ym.plusMonths(1)
+        next = atThisMonth(ym)
+    }
+    return next.toInstant().toEpochMilli()
+}
+fun scheduleMonthlyReminder(
+    context: Context,
+    id: Int,
+    dayOfMonth: Int,   // 1..31 (31 means "last day" via clamping)
+    hour: Int,
+    minute: Int,
+    title: String,
+    text: String
+) {
+    val trigger = nextMonthlyTriggerMillis(dayOfMonth, hour, minute)
+    scheduleReminder(
+        context = context,
+        triggerAtMillis = trigger,
+        id = id,
+        title = title,
+        text = text,
+        repeat = "MONTHLY",
+        dayOfMonth = dayOfMonth,
+        hour = hour,
+        minute = minute
+    )
+}
 fun requestExactAlarmAccess(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
@@ -34,7 +83,11 @@ fun scheduleReminder(
     triggerAtMillis: Long,
     id: Int,
     title: String,
-    text: String
+    text: String,
+    repeat: String = "NONE",
+    dayOfMonth: Int? = null,
+    hour: Int? = null,
+    minute: Int? = null
 ) {
     createNotificationChannelIfNeeded(context)
 
@@ -42,6 +95,10 @@ fun scheduleReminder(
         putExtra("id", id)
         putExtra("title", title)
         putExtra("text", text)
+        putExtra(EXTRA_REPEAT, repeat)
+        dayOfMonth?.let { putExtra(EXTRA_DOM, it) }
+        hour?.let { putExtra(EXTRA_HOUR, it) }
+        minute?.let { putExtra(EXTRA_MINUTE, it) }
     }
     val pi = PendingIntent.getBroadcast(
         context, id, intent,
